@@ -1,3 +1,15 @@
+'''
+git clone https://github.com/xignos3108/simple_classifier
+
+git add -A
+
+git commit -m "커밋 메세지"
+
+git push
+
+tensorboard --logdir=runs
+'''
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -8,7 +20,7 @@ import models
 from configs import CONFIGS
 
 from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter("runs/AlexNet")
+writer = SummaryWriter("runs/alexnet")
 
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -48,13 +60,19 @@ model = models.ConvNet_alexnet().to(device)
 criterion = nn.CrossEntropyLoss() # softmax is already included
 optimizer = torch.optim.Adam(model.parameters(), lr=config['DEFAULT_CONFIG']['learning_rate'])
 
-running_loss = 0.0
-running_correct = 0
+
 n_total_steps = len(train_loader)
-for epoch in range(config['DEFAULT_CONFIG']['num_epochs']):
-    for i, (images, labels) in enumerate(train_loader):
-        # origin shape: [4, 3, 32, 32] = 4, 3, 1024
-        # input_layer: 3 input channels, 6 output channels, 5 kernel size
+num_epochs = config['DEFAULT_CONFIG']['num_epochs']
+for epoch in range(num_epochs):
+    n_samples = 0.0
+    train_loss = 0.0
+    train_accuracy = 0.0
+    test_loss = 0.0
+    test_accuracy = 0.0
+    n_class_accuracy = [0 for i in range(10)]
+    n_class_samples = [0 for i in range(10)]
+    
+    for images, labels in train_loader:
         images = images.to(device)
         labels = labels.to(device)
 
@@ -67,48 +85,73 @@ for epoch in range(config['DEFAULT_CONFIG']['num_epochs']):
         loss.backward()
         optimizer.step()
 
-        running_loss +=loss.item()
-        _, predicted = torch.max(outputs, 1)
-        running_correct += (predicted == labels).sum().item()
+        # calculate train loss and accuracy
+        _, predicted = torch.max(outputs, 1) # torch.max returns (value ,index)
+        n_samples += labels.size(0)
+        train_loss += loss.item()
+        train_accuracy += (predicted==labels).sum().item()
         
-        num_epochs = config['DEFAULT_CONFIG']['num_epochs']
+        '''
+        # training loss
         if (i+1) % 2000 == 0:
             print (f'Epoch [{epoch+1}/{num_epochs}], Step [{i+1}/{n_total_steps}], Loss: {loss.item():.4f}')
-            writer.add_scalar('training loss', running_loss / 100, epoch*n_total_steps+i)
-            running_accuracy = running_correct / 100 / predicted.size(0)
-            writer.add_scalar('accuracy', running_accuracy, epoch * n_total_steps + i)
-            running_correct = 0
-            running_loss = 0.0
+            writer.add_scalar('training loss', train_loss / 100, epoch*n_total_steps+i)
+            train_accuracy = train_correct / 100 / predicted.size(0)
+            writer.add_scalar('accuracy', train_accuracy, epoch * n_total_steps + i)
+            train_correct = 0
+            train_loss = 0.0
             writer.close()
+        '''
+
+    with torch.no_grad():
+        n_test_samples = 0.0
+        for test_images, test_labels in test_loader:
+            test_images = test_images.to(device)
+            test_labels = test_labels.to(device)
+            
+            # Forward pass
+            test_outputs = model(images)
+            test_loss = criterion(test_outputs, test_labels)
+
+            # calculate test loss and accuracy
+            _, predicted = torch.max(test_outputs, 1) # torch.max returns (value ,index)
+            n_test_samples += test_labels.size(0)
+            test_loss += test_loss.item()
+            test_accuracy += (predicted==labels).sum().item()
+            
+            # calculate accuracy per classes
+            for i in range(config['DEFAULT_CONFIG']['batch_size']):
+                label = labels[i]
+                pred = predicted[i]
+                if (label == pred):
+                    n_class_accuracy[label] += 1
+                n_class_samples[label] += 1
+        
+        print("===================================================")
+        print("epoch: ", epoch + 1)
+        train_loss = train_loss / len(train_loader)
+        writer.add_scalar('train loss', train_loss / 100, epoch*n_total_steps+i)
+        train_accuracy = train_accuracy / n_samples
+        writer.add_scalar('train accuracy', train_accuracy / 100, epoch*n_total_steps+i)
+        print("train loss: {:.5f}, acc: {:.5f}".format(train_loss, train_accuracy))
+        
+
+        test_loss = test_loss / len(test_loader)
+        writer.add_scalar('test loss', test_loss / 100, epoch*n_total_steps+i)
+        test_accuracy = test_accuracy / n_test_samples
+        writer.add_scalar('test accuracy', test_accuracy / 100, epoch*n_total_steps+i)
+        print("test loss: {:.5f}, acc: {:.5f}".format(test_loss, test_accuracy)) 
+        writer.close()
+
 
 print('Finished Training')
 PATH = './cnn.pth'
 torch.save(model.state_dict(), PATH)
 
-with torch.no_grad():
-    n_correct = 0
-    n_samples = 0
-    n_class_correct = [0 for i in range(10)]
-    n_class_samples = [0 for i in range(10)]
-    for images, labels in test_loader:
-        images = images.to(device)
-        labels = labels.to(device)
-        outputs = model(images)
-        # max returns (value ,index)
-        _, predicted = torch.max(outputs, 1)
-        n_samples += labels.size(0)
-        n_correct += (predicted == labels).sum().item()
-        
-        for i in range(config['DEFAULT_CONFIG']['batch_size']):
-            label = labels[i]
-            pred = predicted[i]
-            if (label == pred):
-                n_class_correct[label] += 1
-            n_class_samples[label] += 1
+# accuracy
+acc = 100.0 * test_accuracy
+print(f'Accuracy of the network: {acc} %')
 
-    acc = 100.0 * n_correct / n_samples
-    print(f'Accuracy of the network: {acc} %')
-
-    for i in range(10):
-        acc = 100.0 * n_class_correct[i] / n_class_samples[i]
-        print(f'Accuracy of {classes[i]}: {acc} %')
+for i in range(10):
+    class_acc = 100.0 * n_class_accuracy[i] / n_class_samples[i]
+    print(f'Accuracy of {classes[i]}: {class_acc} %')
