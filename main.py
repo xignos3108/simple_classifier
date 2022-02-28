@@ -20,16 +20,16 @@ import models
 from configs import CONFIGS
 
 from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter("runs/alexnet")
+writer = SummaryWriter("runs/default_5")
 
-# Device configuration
+# device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Hyper-parameters 
+# hyper-parameters 
 config = CONFIGS
 
 # dataset has PILImage images of range [0, 1]. 
-# We transform them to Tensors of normalized range [-1, 1]
+# we transform them to Tensors of normalized range [-1, 1]
 transform = transforms.Compose(
     [transforms.ToTensor(),
      transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
@@ -42,20 +42,20 @@ test_dataset = torchvision.datasets.CIFAR10(root='./data', train=False,
                                        download=True, transform=transform)
 
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=config['DEFAULT_CONFIG']['batch_size'],
-                                          shuffle=False) #True
+                                          shuffle=True) #True
 
-test_loader = torch.utils.data.DataLoader(test_dataset, config['DEFAULT_CONFIG']['batch_size'],
-                                         shuffle=False)
+test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=config['DEFAULT_CONFIG']['batch_size'],
+                                         shuffle=True)
 
 classes = ('airplane', 'car', 'bird', 'cat',
            'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
 
 # select model
-# model = models.ConvNet_deeperLayers().to(device)
+model = models.ConvNet_default().to(device)
 # model = models.ConvNet_deeperLayers().to(device)
 # model = models.ConvNet_featureMap().to(device)
-model = models.ConvNet_alexnet().to(device)
+# model = models.ConvNet_alexnet().to(device)
 
 criterion = nn.CrossEntropyLoss() # softmax is already included
 optimizer = torch.optim.Adam(model.parameters(), lr=config['DEFAULT_CONFIG']['learning_rate'])
@@ -67,8 +67,11 @@ for epoch in range(num_epochs):
     n_samples = 0.0
     train_loss = 0.0
     train_accuracy = 0.0
+    
+    n_test_samples = 0.0
     test_loss = 0.0
     test_accuracy = 0.0
+    
     n_class_accuracy = [0 for i in range(10)]
     n_class_samples = [0 for i in range(10)]
     
@@ -76,11 +79,10 @@ for epoch in range(num_epochs):
         images = images.to(device)
         labels = labels.to(device)
 
-        # Forward pass
+        # forward pass
         outputs = model(images)
         loss = criterion(outputs, labels)
-
-        # Backward and optimize
+        # backward pass and optimize
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -104,20 +106,19 @@ for epoch in range(num_epochs):
         '''
 
     with torch.no_grad():
-        n_test_samples = 0.0
         for test_images, test_labels in test_loader:
             test_images = test_images.to(device)
             test_labels = test_labels.to(device)
             
-            # Forward pass
-            test_outputs = model(images)
+            # forward pass
+            test_outputs = model(test_images)
             test_loss = criterion(test_outputs, test_labels)
 
             # calculate test loss and accuracy
             _, predicted = torch.max(test_outputs, 1) # torch.max returns (value ,index)
             n_test_samples += test_labels.size(0)
             test_loss += test_loss.item()
-            test_accuracy += (predicted==labels).sum().item()
+            test_accuracy += (predicted==test_labels).sum().item()
             
             # calculate accuracy per classes
             for i in range(config['DEFAULT_CONFIG']['batch_size']):
@@ -131,14 +132,15 @@ for epoch in range(num_epochs):
         print("epoch: ", epoch + 1)
         train_loss = train_loss / len(train_loader)
         writer.add_scalar('train loss', train_loss / 100, epoch*n_total_steps+i)
-        train_accuracy = train_accuracy / n_samples
+        train_accuracy = 100 * train_accuracy / n_samples
         writer.add_scalar('train accuracy', train_accuracy / 100, epoch*n_total_steps+i)
         print("train loss: {:.5f}, acc: {:.5f}".format(train_loss, train_accuracy))
         
 
         test_loss = test_loss / len(test_loader)
         writer.add_scalar('test loss', test_loss / 100, epoch*n_total_steps+i)
-        test_accuracy = test_accuracy / n_test_samples
+        test_accuracy = 100 * test_accuracy / n_test_samples
+
         writer.add_scalar('test accuracy', test_accuracy / 100, epoch*n_total_steps+i)
         print("test loss: {:.5f}, acc: {:.5f}".format(test_loss, test_accuracy)) 
         writer.close()
